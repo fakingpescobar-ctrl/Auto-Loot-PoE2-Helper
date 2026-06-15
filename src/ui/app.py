@@ -83,6 +83,7 @@ class BotRunner:
         self._running = False
         self._status = {}
         self._lock = threading.Lock()
+        self._radius = 250
 
     @property
     def running(self):
@@ -94,16 +95,29 @@ class BotRunner:
         self._stop_event.clear()
         self._running = True
         self._profile = profile_name
+        self._radius = cfg.get("loot", {}).get("pickup_radius_px", 250)
         self._thread = threading.Thread(target=self._run_bot, args=(cfg,), daemon=True)
         self._thread.start()
 
     def stop(self):
         self._stop_event.set()
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=3.0)
         self._running = False
+        self._update_status(active=False)
 
     def get_status(self):
         with self._lock:
             return dict(self._status)
+
+    def get_overlay_state(self):
+        with self._lock:
+            return {
+                "radius": self._radius,
+                "active": self._status.get("active", False),
+                "targets": self._status.get("targets", 0),
+                "in_radius": self._status.get("in_radius", 0),
+            }
 
     def _update_status(self, **kw):
         with self._lock:
@@ -220,6 +234,7 @@ class BotRunner:
                         foreground=foreground, stats=dict(stats),
                         hp=round(hp_watcher.hp_ratio * 100) if hp_watcher else None,
                         mode=loot.get("mode", "toggle"),
+                        radius=self._radius,
                         session_stats=f"{stats_collector.session.total} items ({stats_collector.session.picks_per_minute:.0f}/min)",
                     )
 
@@ -248,8 +263,12 @@ if HAS_PYQT5:
             super().__init__()
             self.signals = signals
             self.bot = bot
+            self._main_window = None
             self._setup_ui()
             self.signals.status_update.connect(self._update_status)
+
+        def set_main_window(self, win):
+            self._main_window = win
 
         def _setup_ui(self):
             layout = QVBoxLayout(self)
@@ -321,10 +340,14 @@ if HAS_PYQT5:
                 current = pm.current()
                 cfg = pm.load(current)
                 self.bot.start(cfg, profile_name=current)
+                if self._main_window:
+                    self._main_window.start_overlay()
 
         def _stop(self):
             if self.bot.running:
                 self.bot.stop()
+                if self._main_window:
+                    self._main_window.stop_overlay()
 
 
     class ProfilesTab(QWidget):
@@ -533,6 +556,8 @@ if HAS_PYQT5:
             self.setMinimumSize(900, 650)
             self.signals = Signals()
             self.bot = BotRunner()
+            self._overlay = None
+            self._overlay_thread = None
             central = QWidget()
             self.setCentralWidget(central)
             layout = QVBoxLayout(central)
@@ -550,10 +575,26 @@ if HAS_PYQT5:
         def _poll(self):
             if self.bot.running:
                 self.signals.status_update.emit(self.bot.get_status())
+                if self._overlay and not self.bot._stop_event.is_set():
+                    pass
+
+        def start_overlay(self):
+            from .radius_overlay import RadiusOverlay, HAS_TK
+            if HAS_TK and self._overlay is None:
+                self._overlay = RadiusOverlay(self.bot._stop_event, self.bot.get_overlay_state)
+                self._overlay_thread = threading.Thread(target=self._overlay.run, daemon=True)
+                self._overlay_thread.start()
+
+        def stop_overlay(self):
+            if self._overlay:
+                self._overlay.stop()
+                self._overlay = None
+                self._overlay_thread = None
 
         def closeEvent(self, event):
             if self.bot.running:
                 self.bot.stop()
+            self.stop_overlay()
             event.accept()
 
 
@@ -565,6 +606,11 @@ def run_gui():
     app.setStyleSheet(DARK_STYLE)
     app.setFont(QFont("Segoe UI", 10))
     window = MainWindow()
+    for i in range(window.centralWidget().findChild(QTabWidget).count()):
+        tab = window.centralWidget().findChild(QTabWidget).widget(i)
+        if isinstance(tab, DashboardTab):
+            tab.set_main_window(window)
+            break
     window.show()
     sys.exit(app.exec_())
 
