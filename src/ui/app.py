@@ -218,7 +218,7 @@ class BotRunner:
                         foreground=foreground, stats=dict(stats),
                         hp=round(hp_watcher.hp_ratio * 100) if hp_watcher else None,
                         mode=loot.get("mode", "toggle"),
-                        session_stats=f"{stats_collector.total} items ({stats_collector.picks_per_minute:.0f}/min)",
+                        session_stats=f"{stats_collector.session.total} items ({stats_collector.session.picks_per_minute:.0f}/min)",
                     )
 
                     elapsed = time.perf_counter() - t0
