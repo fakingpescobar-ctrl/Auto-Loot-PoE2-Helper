@@ -52,29 +52,29 @@ class GamepadEmulator:
         return {}
 
     def _get_xbox_button(self, action):
-        """Get Xbox button constant from action name using mapping."""
-        btn_id = self._mapping.get(action)
-        if btn_id is None:
+        """Get Xbox button constant from action name using PS4-to-Xbox mapping."""
+        ps4_id = self._mapping.get(action)
+        if ps4_id is None:
             return None
 
-        btn_map = {
-            0: vg.XUSB_BUTTON.XUSB_GAMEPAD_A,
-            1: vg.XUSB_BUTTON.XUSB_GAMEPAD_B,
-            2: vg.XUSB_BUTTON.XUSB_GAMEPAD_X,
-            3: vg.XUSB_BUTTON.XUSB_GAMEPAD_Y,
-            4: vg.XUSB_BUTTON.XUSB_GAMEPAD_LEFT_SHOULDER,
-            5: vg.XUSB_BUTTON.XUSB_GAMEPAD_RIGHT_SHOULDER,
-            6: vg.XUSB_BUTTON.XUSB_GAMEPAD_BACK,
-            7: vg.XUSB_BUTTON.XUSB_GAMEPAD_START,
-            8: vg.XUSB_BUTTON.XUSB_GAMEPAD_GUIDE,
-            9: vg.XUSB_BUTTON.XUSB_GAMEPAD_LEFT_THUMB,
-            10: vg.XUSB_BUTTON.XUSB_GAMEPAD_RIGHT_THUMB,
-            11: vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_UP,
-            12: vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_DOWN,
-            13: vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_LEFT,
-            14: vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_RIGHT,
+        PS4_TO_XBOX = {
+            0: vg.XUSB_BUTTON.XUSB_GAMEPAD_A,              # PS4 X
+            1: vg.XUSB_BUTTON.XUSB_GAMEPAD_B,              # PS4 O
+            2: vg.XUSB_BUTTON.XUSB_GAMEPAD_X,              # PS4 Square
+            3: vg.XUSB_BUTTON.XUSB_GAMEPAD_Y,              # PS4 Triangle
+            4: vg.XUSB_BUTTON.XUSB_GAMEPAD_LEFT_SHOULDER,  # PS4 L1
+            5: vg.XUSB_BUTTON.XUSB_GAMEPAD_RIGHT_SHOULDER, # PS4 R1
+            8: vg.XUSB_BUTTON.XUSB_GAMEPAD_BACK,           # PS4 Share
+            9: vg.XUSB_BUTTON.XUSB_GAMEPAD_START,          # PS4 Options
+            10: vg.XUSB_BUTTON.XUSB_GAMEPAD_GUIDE,         # PS4 PS
+            11: vg.XUSB_BUTTON.XUSB_GAMEPAD_LEFT_THUMB,    # PS4 L3
+            12: vg.XUSB_BUTTON.XUSB_GAMEPAD_RIGHT_THUMB,   # PS4 R3
+            13: vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_UP,       # PS4 D-pad Up
+            14: vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_DOWN,     # PS4 D-pad Down
+            15: vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_LEFT,     # PS4 D-pad Left
+            16: vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_RIGHT,    # PS4 D-pad Right
         }
-        return btn_map.get(btn_id)
+        return PS4_TO_XBOX.get(ps4_id)
 
     def press(self, action, duration=0.05):
         """Нажать и отпустить кнопку по действию."""
