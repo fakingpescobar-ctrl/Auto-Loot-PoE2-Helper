@@ -66,7 +66,9 @@ QHeaderView::section { background: #16213e; color: #00ff88; padding: 5px; border
 QProgressBar { border: 1px solid #2a2a4a; border-radius: 4px; text-align: center; color: #000; }
 QProgressBar::chunk { background: #00ff88; border-radius: 3px; }
 QCheckBox { color: #ffffff; spacing: 8px; }
-QCheckBox::indicator { width: 16px; height: 16px; }
+QCheckBox::indicator { width: 16px; height: 16px; border: 2px solid #2a2a4a; border-radius: 3px; background: #0f3460; }
+QCheckBox::indicator:checked { background: #00ff88; border-color: #00ff88; }
+QCheckBox::indicator:unchecked { background: #0f3460; }
 QSlider::groove:horizontal { background: #2a2a4a; height: 6px; border-radius: 3px; }
 QSlider::handle:horizontal { background: #00ff88; width: 16px; margin: -5px 0; border-radius: 8px; }
 QScrollArea { border: none; }
