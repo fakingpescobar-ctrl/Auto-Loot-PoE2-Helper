@@ -88,11 +88,12 @@ class BotRunner:
     def running(self):
         return self._running
 
-    def start(self, cfg, args=None):
+    def start(self, cfg, profile_name="default"):
         if self._running:
             return
         self._stop_event.clear()
         self._running = True
+        self._profile = profile_name
         self._thread = threading.Thread(target=self._run_bot, args=(cfg,), daemon=True)
         self._thread.start()
 
@@ -120,7 +121,8 @@ class BotRunner:
         from ..vision.color_detector import ColorDetector
 
         log = logging.getLogger("autoloot.gui")
-        self._update_status(mode=cfg.get("loot", {}).get("mode", "toggle"), active=True)
+        self._update_status(mode=cfg.get("loot", {}).get("mode", "toggle"),
+                            profile=getattr(self, '_profile', 'default'), active=True)
 
         try:
             win = GameWindow(cfg["game"]["window_title"])
@@ -315,8 +317,10 @@ if HAS_PYQT5:
 
         def _start(self):
             if not self.bot.running:
-                cfg = load_config(None)
-                self.bot.start(cfg)
+                pm = ProfileManager()
+                current = pm.current()
+                cfg = pm.load(current)
+                self.bot.start(cfg, profile_name=current)
 
         def _stop(self):
             if self.bot.running:
