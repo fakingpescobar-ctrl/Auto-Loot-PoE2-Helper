@@ -6,8 +6,10 @@
 Требует: vgamepad (pip install vgamepad)
 Для PoE2: X=подбор, L2=HP фласка, R2=MP фласка
 """
+import json
 import logging
 import time
+from pathlib import Path
 
 _log = logging.getLogger("autoloot.gamepad")
 
@@ -17,23 +19,7 @@ try:
 except ImportError:
     HAS_VGAMEPAD = False
 
-
-# PoE2 кнопки (PS4 layout)
-class Button:
-    X = "cross"           # подбор лута
-    CIRCLE = "circle"
-    SQUARE = "square"
-    TRIANGLE = "triangle"
-    L1 = "left_shoulder"
-    R1 = "right_shoulder"
-    L2 = "left_trigger"   # HP фласка
-    R2 = "right_trigger"  # MP фласка
-    DPAD_UP = "up"
-    DPAD_DOWN = "down"
-    DPAD_LEFT = "left"
-    DPAD_RIGHT = "right"
-    OPTIONS = "options"
-    SHARE = "share"
+MAPPING_FILE = Path(__file__).resolve().parents[2] / "config" / "gamepad" / "mapping.json"
 
 
 class GamepadEmulator:
@@ -42,109 +28,98 @@ class GamepadEmulator:
     def __init__(self):
         self._gamepad = None
         self.enabled = False
+        self._mapping = self._load_mapping()
 
         if HAS_VGAMEPAD:
             try:
                 self._gamepad = vg.VX360Gamepad()
                 self.enabled = True
-                _log.info("Виртуальный Xbox контроллер создан")
+                _log.info("Virtual Xbox controller created")
             except Exception as e:
-                _log.warning("Не удалось создать контроллер: %s", e)
+                _log.warning("Failed to create controller: %s", e)
         else:
-            _log.info("vgamepad не установлен (pip install vgamepad)")
+            _log.info("vgamepad not installed (pip install vgamepad)")
 
-    def press(self, button, duration=0.05):
-        """Нажать и отпустить кнопку."""
-        if not self.enabled or not self._gamepad:
-            return
+    def _load_mapping(self):
+        if MAPPING_FILE.exists():
+            try:
+                with open(MAPPING_FILE, encoding="utf-8") as f:
+                    data = json.load(f)
+                _log.info("Gamepad mapping loaded: %s", data.get("name", "unknown"))
+                return data.get("buttons", {})
+            except Exception:
+                pass
+        return {}
 
-        try:
-            self._set_button(button, True)
-            self._gamepad.update()
-            time.sleep(duration)
-            self._set_button(button, False)
-            self._gamepad.update()
-        except Exception as e:
-            _log.debug("Ошибка нажатия %s: %s", button, e)
-
-    def hold(self, button):
-        """Зажать кнопку."""
-        if not self.enabled or not self._gamepad:
-            return
-        try:
-            self._set_button(button, True)
-            self._gamepad.update()
-        except Exception:
-            pass
-
-    def release(self, button):
-        """Отпустить кнопку."""
-        if not self.enabled or not self._gamepad:
-            return
-        try:
-            self._set_button(button, False)
-            self._gamepad.update()
-        except Exception:
-            pass
-
-    def pickup(self):
-        """Подобрать лут (X/Cross)."""
-        self.press(Button.X, duration=0.03)
-
-    def use_hp_flask(self):
-        """Использовать HP фласку (L2)."""
-        self.press(Button.L2, duration=0.05)
-
-    def use_mana_flask(self):
-        """Использовать MP фласку (R2)."""
-        self.press(Button.R2, duration=0.05)
-
-    def dodge(self):
-        """Уклонение (Circle)."""
-        self.press(Button.CIRCLE, duration=0.03)
-
-    def skill(self, slot):
-        """Использовать скилл по слоту (1-4)."""
-        btn = {1: Button.SQUARE, 2: Button.TRIANGLE,
-               3: Button.L1, 4: Button.R1}.get(slot)
-        if btn:
-            self.press(btn, duration=0.03)
-
-    def _set_button(self, button, pressed):
-        """Установить состояние кнопки."""
-        if not self._gamepad:
-            return
+    def _get_xbox_button(self, action):
+        """Get Xbox button constant from action name using mapping."""
+        btn_id = self._mapping.get(action)
+        if btn_id is None:
+            return None
 
         btn_map = {
-            Button.X: vg.XUSB_BUTTON.XUSB_GAMEPAD_A,
-            Button.CIRCLE: vg.XUSB_BUTTON.XUSB_GAMEPAD_B,
-            Button.SQUARE: vg.XUSB_BUTTON.XUSB_GAMEPAD_X,
-            Button.TRIANGLE: vg.XUSB_BUTTON.XUSB_GAMEPAD_Y,
-            Button.L1: vg.XUSB_BUTTON.XUSB_GAMEPAD_LEFT_SHOULDER,
-            Button.R1: vg.XUSB_BUTTON.XUSB_GAMEPAD_RIGHT_SHOULDER,
-            Button.L2: None,  # axis, not button
-            Button.R2: None,  # axis, not button
-            Button.DPAD_UP: vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_UP,
-            Button.DPAD_DOWN: vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_DOWN,
-            Button.DPAD_LEFT: vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_LEFT,
-            Button.DPAD_RIGHT: vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_RIGHT,
-            Button.OPTIONS: vg.XUSB_BUTTON.XUSB_GAMEPAD_START,
-            Button.SHARE: vg.XUSB_BUTTON.XUSB_GAMEPAD_BACK,
+            0: vg.XUSB_BUTTON.XUSB_GAMEPAD_A,
+            1: vg.XUSB_BUTTON.XUSB_GAMEPAD_B,
+            2: vg.XUSB_BUTTON.XUSB_GAMEPAD_X,
+            3: vg.XUSB_BUTTON.XUSB_GAMEPAD_Y,
+            4: vg.XUSB_BUTTON.XUSB_GAMEPAD_LEFT_SHOULDER,
+            5: vg.XUSB_BUTTON.XUSB_GAMEPAD_RIGHT_SHOULDER,
+            6: vg.XUSB_BUTTON.XUSB_GAMEPAD_BACK,
+            7: vg.XUSB_BUTTON.XUSB_GAMEPAD_START,
+            8: vg.XUSB_BUTTON.XUSB_GAMEPAD_GUIDE,
+            9: vg.XUSB_BUTTON.XUSB_GAMEPAD_LEFT_THUMB,
+            10: vg.XUSB_BUTTON.XUSB_GAMEPAD_RIGHT_THUMB,
+            11: vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_UP,
+            12: vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_DOWN,
+            13: vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_LEFT,
+            14: vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_RIGHT,
         }
+        return btn_map.get(btn_id)
 
-        btn = btn_map.get(button)
-        if btn is not None:
-            if pressed:
-                self._gamepad.press_button(button=btn)
-            else:
-                self._gamepad.release_button(button=btn)
-        elif button == Button.L2:
-            self._gamepad.left_trigger(value=255 if pressed else 0)
-        elif button == Button.R2:
-            self._gamepad.right_trigger(value=255 if pressed else 0)
+    def press(self, action, duration=0.05):
+        """Нажать и отпустить кнопку по действию."""
+        if not self.enabled or not self._gamepad:
+            return
+
+        try:
+            xbox_btn = self._get_xbox_button(action)
+            if xbox_btn is not None:
+                self._gamepad.press_button(button=xbox_btn)
+                self._gamepad.update()
+                time.sleep(duration)
+                self._gamepad.release_button(button=xbox_btn)
+                self._gamepad.update()
+            elif action == "hp_flask":
+                self._gamepad.left_trigger(value=255)
+                self._gamepad.update()
+                time.sleep(duration)
+                self._gamepad.left_trigger(value=0)
+                self._gamepad.update()
+            elif action == "mana_flask":
+                self._gamepad.right_trigger(value=255)
+                self._gamepad.update()
+                time.sleep(duration)
+                self._gamepad.right_trigger(value=0)
+                self._gamepad.update()
+        except Exception as e:
+            _log.debug("Press error %s: %s", action, e)
+
+    def pickup(self):
+        self.press("pickup", duration=0.03)
+
+    def use_hp_flask(self):
+        self.press("hp_flask", duration=0.05)
+
+    def use_mana_flask(self):
+        self.press("mana_flask", duration=0.05)
+
+    def dodge(self):
+        self.press("dodge", duration=0.03)
+
+    def skill(self, slot):
+        self.press(f"skill_{slot}", duration=0.03)
 
     def reset(self):
-        """Сбросить все кнопки."""
         if self._gamepad:
             try:
                 self._gamepad.reset()
