@@ -20,10 +20,6 @@ class RadiusOverlay:
     """Прозрачный оверлей с кругом радиуса."""
 
     def __init__(self, stop_event, get_state_fn):
-        """
-        stop_event: threading.Event для остановки
-        get_state_fn: callable -> dict с ключами center_x, center_y, radius, active, targets
-        """
         self.stop_event = stop_event
         self.get_state = get_state_fn
         self._root = None
@@ -41,9 +37,15 @@ class RadiusOverlay:
         self._root.title("Radius")
         self._root.overrideredirect(True)
         self._root.attributes("-topmost", True)
-        self._root.attributes("-alpha", 0.4)
+        self._root.attributes("-alpha", 0.5)
         self._root.config(bg="black")
-        self._root.geometry("500x500+100+100")
+
+        screen_w = self._root.winfo_screenwidth()
+        screen_h = self._root.winfo_screenheight()
+        size = 600
+        x = (screen_w - size) // 2
+        y = (screen_h - size) // 2
+        self._root.geometry(f"{size}x{size}+{x}+{y}")
 
         try:
             self._root.attributes("-transparentcolor", "black")
@@ -51,14 +53,17 @@ class RadiusOverlay:
             pass
 
         self._canvas = tk.Canvas(
-            self._root, width=500, height=500,
+            self._root, width=size, height=size,
             bg="black", highlightthickness=0)
         self._canvas.pack()
 
-        self._root.bind("<Button-1>", self._on_press)
-        self._root.bind("<B1-Motion>", self._on_drag)
-        self._root.bind("<ButtonRelease-1>", self._on_release)
-        self._root.bind("<MouseWheel>", self._on_scroll)
+        self._cx = size // 2
+        self._cy = size // 2
+
+        self._canvas.bind("<Button-1>", self._on_press)
+        self._canvas.bind("<B1-Motion>", self._on_drag)
+        self._canvas.bind("<ButtonRelease-1>", self._on_release)
+        self._canvas.bind("<MouseWheel>", self._on_scroll)
 
         self._update()
         self._root.mainloop()
@@ -95,7 +100,7 @@ class RadiusOverlay:
 
         self._canvas.delete("all")
 
-        cx, cy = 250, 250
+        cx, cy = self._cx, self._cy
         r = self._radius
 
         color = "#00ff88" if active else "#ff4444"
@@ -105,13 +110,13 @@ class RadiusOverlay:
             outline=color, width=2, dash=(6, 4))
 
         self._canvas.create_oval(
-            cx - 4, cy - 4, cx + 4, cy + 4,
+            cx - 5, cy - 5, cx + 5, cy + 5,
             fill=color, outline="")
 
-        self._canvas.create_line(cx - 10, cy, cx + 10, cy, fill=color, width=1)
-        self._canvas.create_line(cx, cy - 10, cx, cy + 10, fill=color, width=1)
+        self._canvas.create_line(cx - 12, cy, cx + 12, cy, fill=color, width=1)
+        self._canvas.create_line(cx, cy - 12, cx, cy + 12, fill=color, width=1)
 
-        f = tkfont.Font(family="Consolas", size=10, weight="bold")
+        f = tkfont.Font(family="Consolas", size=11, weight="bold")
         self._canvas.create_text(
             cx, cy - r - 15,
             text=f"R={self._radius}px",
@@ -122,8 +127,8 @@ class RadiusOverlay:
             fill=color, font=f)
         self._canvas.create_text(
             cx, cy + r + 30,
-            text="drag to resize | scroll to adjust",
-            fill="#888888", font=tkfont.Font(family="Consolas", size=8))
+            text="drag=resize | scroll=adjust",
+            fill="#888888", font=tkfont.Font(family="Consolas", size=9))
 
         self._root.after(100, self._update)
 
