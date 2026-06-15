@@ -175,6 +175,16 @@ class BotRunner:
             )
 
             hp_watcher = HPWatcher(cfg.get("hp_flask", {}), log)
+
+            gamepad = None
+            if cfg.get("gamepad", {}).get("enabled", False):
+                from ..input.gamepad import GamepadEmulator
+                gamepad = GamepadEmulator()
+                if gamepad.enabled:
+                    hp_watcher.set_gamepad(gamepad)
+                    log.info("Gamepad: %s", "active")
+                else:
+                    log.warning("Gamepad: not available")
             pickup_log = PickupLogger()
             stats_collector = StatsCollector()
             stats_collector.start_session()

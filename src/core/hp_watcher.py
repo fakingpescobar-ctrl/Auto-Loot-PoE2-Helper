@@ -3,9 +3,7 @@
 Работает независимо от F8 (toggle pickup) — всегда активна пока
 программа запущена и окно игры в фокусе.
 
-Самокалибровка: орб круглый, рамка и символ занимают ~40% прямоугольника.
-Поэтому сырой % всегда занижен. HPWatcher запоминает максимум (= полный ХП)
-и нормирует относительно него. Первые 6 секунд — прогрев (не нажимает).
+Поддержка джойстика: если input_method=gamepad, жмёт L2 вместо клавиши.
 """
 import time
 
@@ -14,11 +12,10 @@ from pynput.keyboard import Controller
 from ..input.keyboard import parse_key
 from ..vision.hp_detector import detect_hp_ratio
 
-_WARMUP_SEC = 6.0   # сек прогрева чтобы поймать полный ХП
+_WARMUP_SEC = 6.0
 
 
 def _beep():
-    """Короткий системный beep."""
     try:
         import winsound
         winsound.Beep(800, 150)
@@ -33,14 +30,20 @@ class HPWatcher:
         self.cooldown = cfg.get("cooldown_ms", 4500) / 1000.0
         self.region = cfg.get("hp_region", None)
         self.sound = bool(cfg.get("sound", True))
+        self.input_method = cfg.get("input_method", "keyboard")
         self._key = parse_key(cfg.get("key", "1"))
         self._kb = Controller()
+        self._gamepad = None
         self._log = log
         self._last_press = 0.0
-        self._last_ratio = 1.0      # нормированный HP (0..1)
+        self._last_ratio = 1.0
         self._max_raw = 0.0         # максимум сырого значения = полный ХП
         self._warmup_until = time.perf_counter() + _WARMUP_SEC
         self._sound_cooldown = 0.0
+
+    def set_gamepad(self, gamepad):
+        """Установить эмулятор джойстика."""
+        self._gamepad = gamepad
 
     def check(self, frame_bgr, foreground):
         """Вызывать на каждом кадре из главного цикла."""
@@ -66,11 +69,14 @@ class HPWatcher:
             return
 
         if hp < self.threshold:
-            self._kb.press(self._key)
-            self._kb.release(self._key)
+            if self.input_method == "gamepad" and self._gamepad:
+                self._gamepad.use_hp_flask()
+            else:
+                self._kb.press(self._key)
+                self._kb.release(self._key)
             self._last_press = now
-            self._log.info("HP фласка [%s] (HP≈%.0f%% < %.0f%%)",
-                           _key_str(self._key), hp * 100, self.threshold * 100)
+            self._log.info("HP flask [%s] (HP≈%.0f%% < %.0f%%)",
+                           self.input_method, hp * 100, self.threshold * 100)
             if self.sound and now - self._sound_cooldown > 3.0:
                 _beep()
                 self._sound_cooldown = now
