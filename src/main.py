@@ -24,18 +24,55 @@ from .config_manager import load_config
 from .core.automation import Automation
 from .core.hp_watcher import HPWatcher
 from .core.loot_engine import LootEngine
+from .core.pickup_logger import PickupLogger
 from .core.profiles import ProfileManager
-from .input.keyboard import key_matches, parse_key
+from .input.keyboard import key_matches, parse_key, ComboTracker
 from .input.mouse import Mouse
 from .logger import get_logger
 from .vision.color_detector import ColorDetector
 
 
 class State:
-    auto_on = False
-    pickup_held = False
-    single_request = False
-    pending_profile = None
+    def __init__(self):
+        self._lock = threading.Lock()
+        self.auto_on = False
+        self.pickup_held = False
+        self.single_request = False
+        self.pending_profile = None
+
+    def toggle_auto(self):
+        with self._lock:
+            self.auto_on = not self.auto_on
+            return self.auto_on
+
+    def set_pickup(self, held):
+        with self._lock:
+            self.pickup_held = held
+
+    def request_single(self):
+        with self._lock:
+            self.single_request = True
+
+    def consume_single(self):
+        with self._lock:
+            if self.single_request:
+                self.single_request = False
+                return True
+            return False
+
+    def set_pending_profile(self, name):
+        with self._lock:
+            self.pending_profile = name
+
+    def consume_pending_profile(self):
+        with self._lock:
+            name = self.pending_profile
+            self.pending_profile = None
+            return name
+
+    def snapshot(self):
+        with self._lock:
+            return self.auto_on, self.pickup_held
 
 
 class Status:
@@ -82,11 +119,10 @@ def build_detector(cfg):
     )
 
 
-def category_for_pixel(frame_bgr, tx, ty, cat_map, hue_tol, sat_min, val_min):
+def category_for_pixel(hsv, tx, ty, cat_map, hue_tol, sat_min, val_min):
     """Определить категорию предмета по цвету пикселя в точке клика."""
     from .vision.color_detector import rgb_to_hsv_bounds
-    hsv = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2HSV)
-    if not (0 <= ty < frame_bgr.shape[0] and 0 <= tx < frame_bgr.shape[1]):
+    if not (0 <= ty < hsv.shape[0] and 0 <= tx < hsv.shape[1]):
         return "?"
     px = hsv[ty, tx]
     for name, rgb in cat_map.items():
@@ -96,13 +132,12 @@ def category_for_pixel(frame_bgr, tx, ty, cat_map, hue_tol, sat_min, val_min):
     return "?"
 
 
-def compute_priorities(points, frame_bgr, cat_map, priority_cfg, hue_tol, sat_min, val_min):
+def compute_priorities(points, hsv, cat_map, priority_cfg, hue_tol, sat_min, val_min):
     """Вернуть {(cx,cy): priority_int} для точек в кадре. Меньше = важнее."""
     if not cat_map or not priority_cfg:
         return {}
     from .vision.color_detector import rgb_to_hsv_bounds
-    hsv = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2HSV)
-    h, w = frame_bgr.shape[:2]
+    h, w = hsv.shape[:2]
     result = {}
     for cx, cy, _area in points:
         if not (0 <= cy < h and 0 <= cx < w):
@@ -121,7 +156,7 @@ def compute_priorities(points, frame_bgr, cat_map, priority_cfg, hue_tol, sat_mi
 
 
 def run_loop(args, cfg, log, stop_event, status, win, region, clicks_enabled,
-             cap, engine, live, apply_profile, hp_watcher=None):
+             cap, engine, live, apply_profile, hp_watcher=None, state=None):
     target_fps = max(1, cfg["capture"].get("target_fps", 30))
     frame_budget = 1.0 / target_fps
     last_log = 0.0
@@ -130,14 +165,15 @@ def run_loop(args, cfg, log, stop_event, status, win, region, clicks_enabled,
     vp = cfg.get("vision", {})
     loot_cfg = cfg.get("loot", {})
     priority_cfg = loot_cfg.get("category_priority", {})
+    pickup_log = PickupLogger(enabled=cfg.get("logging", {}).get("csv_pickup", True))
 
     try:
         while not stop_event.is_set():
             t0 = time.perf_counter()
 
-            if State.pending_profile:
-                name, State.pending_profile = State.pending_profile, None
-                apply_profile(name)
+            pending = state.consume_pending_profile() if state else None
+            if pending:
+                apply_profile(pending)
 
             frame = cap.grab(region)
             if frame is None:
@@ -150,21 +186,21 @@ def run_loop(args, cfg, log, stop_event, status, win, region, clicks_enabled,
             points, mask = det.detect(frame)
             in_radius = engine.targets_in_radius(points, frame.shape)
 
+            auto_on, pickup_held = state.snapshot() if state else (False, False)
             active = (
-                (mode == "hold" and State.pickup_held)
-                or (mode in ("toggle", "lazy") and State.auto_on)
-                or (mode == "single" and State.single_request)
+                (mode == "hold" and pickup_held)
+                or (mode in ("toggle", "lazy") and auto_on)
+                or (mode == "single" and state.consume_single())
             )
-            if mode == "single":
-                State.single_request = False
 
             foreground = win.is_foreground()
             if active and clicks_enabled and foreground:
                 hue_tol = vp.get("hue_tolerance", 8)
                 sat_min = vp.get("sat_min", 120)
                 val_min = vp.get("val_min", 120)
+                hsv_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV) if cat_map else None
                 priorities = (
-                    compute_priorities(in_radius, frame, cat_map, priority_cfg,
+                    compute_priorities(in_radius, hsv_frame, cat_map, priority_cfg,
                                        hue_tol, sat_min, val_min)
                     if cat_map and priority_cfg else None
                 )
@@ -179,20 +215,22 @@ def run_loop(args, cfg, log, stop_event, status, win, region, clicks_enabled,
                     picked += 1
                     cat = "?"
                     if cat_map:
-                        cat = category_for_pixel(frame, tx, ty, cat_map,
-                                                  vp.get("hue_tolerance", 8),
-                                                  vp.get("sat_min", 120),
-                                                  vp.get("val_min", 120))
+                        if hsv_frame is None:
+                            hsv_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+                        cat = category_for_pixel(hsv_frame, tx, ty, cat_map,
+                                                  hue_tol, sat_min, val_min)
                         log.info("Подобрано %s: (%d,%d)", cat, tx, ty)
                     else:
                         log.info("Подобрано: (%d,%d)", tx, ty)
                     stats[cat] = stats.get(cat, 0) + 1
+                    pickup_log.log(cat, tx, ty,
+                                   region["left"] + tx, region["top"] + ty)
 
             if hp_watcher:
                 hp_watcher.check(frame, foreground)
 
             status.update(targets=len(points), in_radius=len(in_radius),
-                          active=bool(active), picked=picked, auto=State.auto_on,
+                          active=bool(active), picked=picked, auto=auto_on,
                           foreground=foreground,
                           stats=dict(stats),
                           hp=round(hp_watcher.hp_ratio * 100) if hp_watcher else None)
@@ -229,6 +267,7 @@ def run_loop(args, cfg, log, stop_event, status, win, region, clicks_enabled,
         log.info("Прервано (Ctrl+C).")
         stop_event.set()
     finally:
+        pickup_log.close()
         if args.calibrate:
             cv2.destroyAllWindows()
 
@@ -258,6 +297,8 @@ def main():
 
     # --- окно игры (с фолбэком на основной монитор) ---
     win = GameWindow(cfg["game"]["window_title"])
+    region = None
+    clicks_enabled = False
     if win.find():
         region = win.get_region()
         clicks_enabled = region is not None
@@ -286,7 +327,9 @@ def main():
         radius=loot["pickup_radius_px"],
         cooldown_ms=loot.get("click_cooldown_ms", 90),
         log=log,
+        dedup_px=loot.get("dedup_px", 24),
         dedup_ms=loot.get("dedup_ms", 0),
+        stuck_timeout_s=loot.get("stuck_timeout_s", 5.0),
     )
     engine.lazy_radius = loot.get("lazy_radius_px", 80)
     live = Live(det=build_detector(cfg), mode=loot.get("mode", "hold"),
@@ -295,6 +338,7 @@ def main():
     log.warning("Захват экрана работает только в режиме Windowed / Windowed Fullscreen "
                 "(не Exclusive Fullscreen).")
 
+    state = State()
     stop_event = threading.Event()
     status = Status(mode=live.mode, profile=start,
                     quit_key=str(cfg["hotkeys"]["quit"]).upper(),
@@ -314,6 +358,8 @@ def main():
             engine.lazy_radius = ploot.get("lazy_radius_px", 80)
             engine.cooldown = ploot.get("click_cooldown_ms", 90) / 1000.0
             engine.center_offset = ploot.get("center_offset_xy", [0, 0])
+            engine.dedup_px = ploot.get("dedup_px", 24)
+            engine.dedup_ms = ploot.get("dedup_ms", 0) / 1000.0
         status.update(profile=name, mode=live.mode)
         colors = [pcfg["filter"]["marker_rgb"]] + [c for c in pcfg["filter"].get("category_colors", {}).values() if c]
         log.info("Профиль -> %s | radius=%d mode=%s colors=%d",
@@ -324,40 +370,72 @@ def main():
     k_toggle = parse_key(cfg["hotkeys"]["toggle"])
     k_pickup = parse_key(cfg["hotkeys"]["pickup"])
     k_profile = parse_key(cfg["hotkeys"].get("profile", "f7"))
+    k_reload = parse_key(cfg["hotkeys"].get("reload", "f5"))
 
-    def on_press(key):
-        if key_matches(key, k_quit):
-            stop_event.set()
-            return False
-        if key_matches(key, k_toggle):
-            State.auto_on = not State.auto_on
-            log.info("Мастер (toggle/автоматика): %s", "ВКЛ" if State.auto_on else "выкл")
-        if key_matches(key, k_profile):
-            State.pending_profile = pm.next()
-        if key_matches(key, k_pickup):
-            State.pickup_held = True
-            if live.mode == "single":
-                State.single_request = True
-
-    def on_release(key):
-        if key_matches(key, k_pickup):
-            State.pickup_held = False
+    def reload_config():
+        nonlocal cfg
+        try:
+            new_cfg = load_config(args.config) if args.config else pm.load(pm.current())
+            cfg = new_cfg
+            vp_new = cfg.get("vision", {})
+            loot_new = cfg.get("loot", {})
+            with live.lock:
+                live.det = build_detector(cfg)
+                live.mode = loot_new.get("mode", "hold")
+                live.cat_map = cfg.get("filter", {}).get("category_colors", {})
+            engine.radius = loot_new["pickup_radius_px"]
+            engine.lazy_radius = loot_new.get("lazy_radius_px", 80)
+            engine.cooldown = loot_new.get("click_cooldown_ms", 90) / 1000.0
+            engine.center_offset = loot_new.get("center_offset_xy", [0, 0])
+            engine.dedup_px = loot_new.get("dedup_px", 24)
+            engine.dedup_ms = loot_new.get("dedup_ms", 0) / 1000.0
+            engine._stuck_timeout = loot_new.get("stuck_timeout_s", 5.0)
+            log.info("Конфиг перезагружен. Режим=%s radius=%d", live.mode, engine.radius)
+        except Exception as e:
+            log.warning("Ошибка перезагрузки конфига: %s", e)
 
     listener = None
+    combo_tracker = ComboTracker()
     try:
         from pynput import keyboard
+
+        def on_press(key):
+            combo_tracker.on_press(key)
+            if key_matches(key, k_quit):
+                stop_event.set()
+                return False
+            if key_matches(key, k_toggle):
+                is_on = state.toggle_auto()
+                log.info("Мастер (toggle/автоматика): %s", "ВКЛ" if is_on else "выкл")
+            if key_matches(key, k_profile):
+                state.set_pending_profile(pm.next())
+            if key_matches(key, k_reload):
+                reload_config()
+            if key_matches(key, k_pickup):
+                state.set_pickup(True)
+                if live.mode == "single":
+                    state.request_single()
+
+        def on_release(key):
+            combo_tracker.on_release(key)
+            if key_matches(key, k_pickup):
+                state.set_pickup(False)
+
         listener = keyboard.Listener(on_press=on_press, on_release=on_release)
         listener.start()
-        log.info("Хоткеи: pickup=%s toggle=%s profile=%s quit=%s | режим=%s",
+        log.info("Хоткеи: pickup=%s toggle=%s profile=%s reload=%s quit=%s | режим=%s",
                  cfg["hotkeys"]["pickup"], cfg["hotkeys"]["toggle"],
-                 cfg["hotkeys"].get("profile", "f7"), cfg["hotkeys"]["quit"], live.mode)
+                 cfg["hotkeys"].get("profile", "f7"), cfg["hotkeys"].get("reload", "f5"),
+                 cfg["hotkeys"]["quit"], live.mode)
     except Exception as e:
-        log.warning("Слушатель клавиатуры недоступен (%s). Выход — Ctrl+C.", e)
+        log.warning("Слушатель клавиатуры недоступен (%s). "
+                    "Хоткеи не работают — управление только через Ctrl+C / оверлей.", e)
+        status.update(hotkeys_disabled=True)
 
     # --- авто-автоматика ---
     def auto_active():
         fg = win.is_foreground() if clicks_enabled else False
-        return (State.auto_on, fg)
+        return (state.auto_on, fg)
 
     automation = Automation(cfg.get("automation", {}), auto_active, stop_event, log)
     automation.start()
@@ -372,7 +450,21 @@ def main():
              ", ".join(cfg["filter"]["categories"]), " | оверлей: вкл" if use_overlay else "")
 
     loop_args = (args, cfg, log, stop_event, status, win, region, clicks_enabled,
-                 cap, engine, live, apply_profile, hp_watcher)
+                 cap, engine, live, apply_profile, hp_watcher, state)
+
+    # --- трей-икон ---
+    from .ui.tray import TrayIcon, HAS_TRAY
+    tray = None
+    if cfg.get("overlay", {}).get("tray_icon", True) and HAS_TRAY:
+        tray = TrayIcon(
+            state, stop_event,
+            on_toggle=lambda: state.toggle_auto(),
+            on_reload=reload_config,
+            on_quit=lambda: stop_event.set(),
+            profile_names=pm.names,
+            on_profile=lambda name: state.set_pending_profile(name),
+        )
+        tray.start()
 
     if use_overlay:
         from .ui.overlay import Overlay
@@ -394,6 +486,8 @@ def main():
 
     if listener:
         listener.stop()
+    if tray:
+        tray.stop()
     log.info("Остановлено.")
     return 0
 

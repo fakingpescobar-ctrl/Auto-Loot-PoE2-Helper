@@ -37,6 +37,17 @@ CATEGORY_CLASS = {
 }
 
 _BG_RE = re.compile(r"^\s*SetBackgroundColor\s+(\d+)\s+(\d+)\s+(\d+)", re.IGNORECASE)
+_NS_VERSION_RE = re.compile(r'NeverSink\s+PoE2?\s+([\d.]+)', re.IGNORECASE)
+
+
+def detect_neversink_version(path: Path):
+    """Определить версию NeverSink из комментариев фильтра."""
+    lines, _ = _read(path)
+    for ln in lines[:50]:
+        m = _NS_VERSION_RE.search(ln)
+        if m:
+            return m.group(1)
+    return None
 
 # NeverSink $type-> теги для категорий (матчим по комментарию Show-блока)
 _CAT_MATCHERS = {
@@ -120,7 +131,7 @@ def _strip_block(lines):
 def _insertion_index(lines):
     """Индекс, куда вставить блок: сразу после waypoint c0.start (верх правил)."""
     for i, ln in enumerate(lines):
-        if "Waypoint c0.start" in ln:
+        if re.search(r'Waypoint\s+c0\.start', ln, re.IGNORECASE):
             return i + 1
     for i, ln in enumerate(lines):
         if "[[0100]] Gold" in ln and not ln.lstrip().startswith("# [["):
@@ -177,7 +188,10 @@ def check(path: Path, marker_rgb, log):
     lines, _ = _read(path)
     _, patched = _strip_block(lines)
     collide = tuple(marker_rgb) in used_background_colors(lines)
+    ns_ver = detect_neversink_version(path)
     log.info("Файл: %s", path)
+    if ns_ver:
+        log.info("NeverSink версия: %s", ns_ver)
     log.info("Патч установлен: %s", "да" if patched else "нет")
     log.info("Маркер %s свободен: %s", tuple(marker_rgb), "НЕТ (коллизия!)" if collide else "да")
 

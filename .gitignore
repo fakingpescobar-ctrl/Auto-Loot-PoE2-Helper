@@ -8,8 +8,6 @@ _debug/
 *.webm
 *.log
 *.png
-*.webm
-*.log
 calibrate.bat
 patch_filter.bat
 run_calibrated.bat

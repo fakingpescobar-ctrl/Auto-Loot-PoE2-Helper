@@ -10,7 +10,7 @@ import time
 
 class LootEngine:
     def __init__(self, mouse, region, center_offset, radius, cooldown_ms, log,
-                 dedup_px=24, dedup_ms=0):
+                 dedup_px=24, dedup_ms=0, stuck_timeout_s=5.0):
         self.mouse = mouse
         self.region = region
         self.center_offset = center_offset
@@ -21,6 +21,9 @@ class LootEngine:
         self.dedup_ms = dedup_ms / 1000.0
         self._last_click_t = 0.0
         self._recent = []  # [(x, y, t)] в координатах кадра
+        self._stuck_timeout = stuck_timeout_s
+        self._stuck_target = None  # (x, y) текущая «застрявшая» цель
+        self._stuck_start = 0.0
 
     def center(self, frame_shape):
         h, w = frame_shape[:2]
@@ -30,6 +33,8 @@ class LootEngine:
         return math.hypot(p[0] - c[0], p[1] - c[1]) <= self.radius
 
     def _recently_clicked(self, p, now):
+        if self.dedup_ms <= 0:
+            return False
         self._recent = [(x, y, t) for (x, y, t) in self._recent if now - t < self.dedup_ms]
         return any(math.hypot(p[0] - x, p[1] - y) <= self.dedup_px for (x, y, _t) in self._recent)
 
@@ -68,6 +73,19 @@ class LootEngine:
         else:
             candidates.sort(key=lambda p: math.hypot(p[0] - ref[0], p[1] - ref[1]))
         tx, ty, _area = candidates[0]
+
+        if self._stuck_target and math.hypot(tx - self._stuck_target[0],
+                                             ty - self._stuck_target[1]) < self.dedup_px:
+            if now - self._stuck_start > self._stuck_timeout:
+                self._recent.append((tx, ty, now))
+                self._stuck_target = None
+                self.log.debug("Anti-stuck: пропускаю цель (%d,%d) — застряла >%.0fs",
+                               tx, ty, self._stuck_timeout)
+                return None
+        else:
+            self._stuck_target = (tx, ty)
+            self._stuck_start = now
+
         sx = self.region["left"] + tx
         sy = self.region["top"] + ty
 

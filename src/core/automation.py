@@ -45,4 +45,4 @@ class Automation(threading.Thread):
                     if t >= self._next[a["name"]]:
                         self._press(a["key"])
                         self._next[a["name"]] = t + a["interval_ms"] / 1000.0
-            time.sleep(0.02)
+            self.stop_event.wait(timeout=0.05)

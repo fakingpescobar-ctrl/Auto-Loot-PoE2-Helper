@@ -1,5 +1,9 @@
 """Быстрый захват региона экрана: dxcam (DirectX) с фолбэком на mss. Возвращает BGR numpy-кадр."""
+import logging
+
 import numpy as np
+
+_log = logging.getLogger("autoloot.capture")
 
 
 class ScreenCapture:
@@ -19,7 +23,8 @@ class ScreenCapture:
                 if self._dxcam is None:
                     raise RuntimeError("dxcam.create() вернул None")
                 return
-            except Exception:
+            except Exception as e:
+                _log.warning("dxcam недоступен (%s) — фолбэк на mss.", e)
                 self.backend = "mss"  # тихий фолбэк
 
         self._init_mss()

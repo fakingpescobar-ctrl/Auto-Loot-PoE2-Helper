@@ -1,7 +1,7 @@
 import threading
 
 from src.config_manager import load_config
-from src.main import Status, build_detector, detector_colors
+from src.main import Status, State, build_detector, detector_colors
 
 
 def test_detector_colors():
@@ -36,3 +36,25 @@ def test_status_threadsafe():
         _ = s.snapshot()
     t.join()
     assert "a" in s.snapshot()
+
+
+def test_state_threadsafe():
+    s = State()
+
+    def toggler():
+        for _ in range(100):
+            s.toggle_auto()
+
+    def pickuper():
+        for _ in range(100):
+            s.set_pickup(True)
+            s.set_pickup(False)
+
+    t1 = threading.Thread(target=toggler)
+    t2 = threading.Thread(target=pickuper)
+    t1.start()
+    t2.start()
+    t1.join()
+    t2.join()
+    auto_on, _ = s.snapshot()
+    assert isinstance(auto_on, bool)

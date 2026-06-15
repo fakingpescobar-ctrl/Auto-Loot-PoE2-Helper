@@ -4,6 +4,8 @@ import os
 
 import yaml
 
+from .config_validator import validate
+
 DEFAULT_PATH = os.path.normpath(
     os.path.join(os.path.dirname(__file__), "..", "config", "default.yaml")
 )
@@ -25,4 +27,5 @@ def load_config(profile_path=None):
     if profile_path:
         with open(profile_path, encoding="utf-8") as f:
             cfg = _deep_merge(cfg, yaml.safe_load(f) or {})
+    validate(cfg)
     return cfg

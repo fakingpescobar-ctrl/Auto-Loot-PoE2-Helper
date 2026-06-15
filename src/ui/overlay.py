@@ -1,7 +1,9 @@
-"""Прозрачный click-through оверлей со статусом поверх игры (tkinter + win32).
+"""Прозрачный оверлей со статусом поверх игры (tkinter + win32).
 
 GUI обязан жить в главном потоке. Цикл захвата запускается отдельным потоком,
 а оверлей читает статус через переданный snapshot-колбэк.
+
+Клик-сквозь по умолчанию. F10 — временно выключить click-through для drag.
 """
 import tkinter as tk
 
@@ -17,6 +19,8 @@ class Overlay:
         self.margin = margin
         self.root = None
         self.label = None
+        self._click_through = True
+        self._hwnd = None
 
     def run(self):
         self.root = tk.Tk()
@@ -40,9 +44,64 @@ class Overlay:
         self.root.update_idletasks()
         x = self.root.winfo_screenwidth() - self.margin[0]
         self.root.geometry(f"+{x}+{self.margin[1]}")
-        self._make_click_through()
+        self._hwnd = self._make_click_through()
+        self._setup_drag()
+        self.root.bind("<F10>", self._toggle_click_through)
+        self.root.bind("<Button-3>", self._toggle_click_through)
         self._tick()
         self.root.mainloop()
+
+    def _make_click_through(self):
+        try:
+            import win32con
+            import win32gui
+
+            hwnd = self.root.winfo_id()
+            parent = win32gui.GetParent(hwnd)
+            if parent:
+                hwnd = parent
+            ex = win32gui.GetWindowLong(hwnd, win32con.GWL_EXSTYLE)
+            win32gui.SetWindowLong(
+                hwnd, win32con.GWL_EXSTYLE,
+                ex | win32con.WS_EX_LAYERED | win32con.WS_EX_TRANSPARENT | win32con.WS_EX_TOOLWINDOW,
+            )
+            return hwnd
+        except Exception:  # noqa: BLE001
+            return None  # без click-through оверлей всё равно показывается
+
+    def _set_click_through(self, enabled):
+        if not self._hwnd:
+            return
+        try:
+            import win32con
+            import win32gui
+            ex = win32gui.GetWindowLong(self._hwnd, win32con.GWL_EXSTYLE)
+            if enabled:
+                ex |= win32con.WS_EX_TRANSPARENT
+            else:
+                ex &= ~win32con.WS_EX_TRANSPARENT
+            win32gui.SetWindowLong(self._hwnd, win32con.GWL_EXSTYLE, ex)
+            self._click_through = enabled
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _toggle_click_through(self, _event=None):
+        self._set_click_through(not self._click_through)
+
+    def _setup_drag(self):
+        def on_press(event):
+            if not self._click_through:
+                self._drag_x = event.x_root - self.root.winfo_x()
+                self._drag_y = event.y_root - self.root.winfo_y()
+
+        def on_drag(event):
+            if not self._click_through:
+                x = event.x_root - self._drag_x
+                y = event.y_root - self._drag_y
+                self.root.geometry(f"+{x}+{y}")
+
+        self.root.bind("<Button-1>", on_press)
+        self.root.bind("<B1-Motion>", on_drag)
 
     def _make_click_through(self):
         try:
@@ -78,7 +137,7 @@ class Overlay:
             f"targets : {s.get('targets', 0)}  (radius {s.get('in_radius', 0)})\n"
             f"picked  : {s.get('picked', 0)}{hp_str}\n"
             f"master  : {master}   automation: {autom}\n"
-            f"quit    : {s.get('quit_key', 'F12')}"
+            f"quit    : {s.get('quit_key', 'F12')}  drag: F10/RMB"
         )
         stats = s.get("stats", {})
         _labels = [("currency", "cur"), ("fragments", "frag"), ("gems", "gem"), ("waystones", "way")]
