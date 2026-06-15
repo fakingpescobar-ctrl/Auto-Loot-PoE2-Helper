@@ -370,7 +370,9 @@ if HAS_PYQT5:
             layout.addWidget(header)
             scroll = QScrollArea()
             scroll.setWidgetResizable(True)
+            scroll.setStyleSheet("QScrollArea { background: #16213e; }")
             container = QWidget()
+            container.setStyleSheet("QWidget { background: #16213e; }")
             form = QFormLayout(container)
             self._add_spin(form, "Target FPS", "capture.target_fps", 30, 1, 120)
             self._add_check(form, "Double Buffer", "capture.double_buffer", True)
@@ -394,39 +396,36 @@ if HAS_PYQT5:
             btn_layout.addWidget(save_btn)
             layout.addLayout(btn_layout)
 
+        def _make_label(self, text):
+            lbl = QLabel(text)
+            lbl.setStyleSheet("color: #ffffff; font-weight: bold; background: #16213e; padding: 4px;")
+            return lbl
+
         def _add_spin(self, form, label, key, default, from_, to_, step=1):
-            lbl = QLabel(label)
-            lbl.setStyleSheet("color: #ffffff; font-weight: bold;")
             var = QSpinBox() if step == 1 else QDoubleSpinBox()
             var.setRange(from_, to_)
             var.setValue(default)
             if step != 1:
                 var.setSingleStep(step)
-            form.addRow(lbl, var)
+            form.addRow(self._make_label(label), var)
             self._values[key] = var
 
         def _add_check(self, form, label, key, default):
-            lbl = QLabel(label)
-            lbl.setStyleSheet("color: #ffffff; font-weight: bold;")
             var = QCheckBox()
             var.setChecked(default)
-            form.addRow(lbl, var)
+            form.addRow(self._make_label(label), var)
             self._values[key] = var
 
         def _add_entry(self, form, label, key, default):
-            lbl = QLabel(label)
-            lbl.setStyleSheet("color: #ffffff; font-weight: bold;")
             var = QLineEdit(default)
-            form.addRow(lbl, var)
+            form.addRow(self._make_label(label), var)
             self._values[key] = var
 
         def _add_combo(self, form, label, key, default, options):
-            lbl = QLabel(label)
-            lbl.setStyleSheet("color: #ffffff; font-weight: bold;")
             var = QComboBox()
             var.addItems(options)
             var.setCurrentText(default)
-            form.addRow(lbl, var)
+            form.addRow(self._make_label(label), var)
             self._values[key] = var
 
         def _load_values(self):
