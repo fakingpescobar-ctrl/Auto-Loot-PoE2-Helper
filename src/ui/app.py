@@ -9,6 +9,7 @@
 """
 from __future__ import annotations
 
+import logging
 import sys
 import threading
 import time
@@ -20,7 +21,7 @@ try:
         QLabel, QPushButton, QGroupBox, QFormLayout, QComboBox, QSpinBox,
         QDoubleSpinBox, QCheckBox, QTextEdit, QTableWidget, QTableWidgetItem,
         QHeaderView, QSplitter, QFrame, QProgressBar, QSlider, QLineEdit,
-        QMessageBox, QFileDialog, QSystemTrayIcon, QMenu, QAction,
+        QMessageBox, QFileDialog, QSystemTrayIcon, QMenu, QAction, QScrollArea,
     )
     from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QObject
     from PyQt5.QtGui import QFont, QColor, QIcon, QPalette
@@ -30,6 +31,186 @@ except ImportError:
 
 from ..config_manager import load_config, DEFAULT_PATH
 from ..core.profiles import ProfileManager, PROFILES_DIR
+
+
+class BotRunner:
+    """Управление ботом: запуск/остановка в фоновом потоке."""
+
+    def __init__(self):
+        self._thread = None
+        self._stop_event = threading.Event()
+        self._running = False
+        self._status = {}
+        self._lock = threading.Lock()
+
+    @property
+    def running(self):
+        return self._running
+
+    def start(self, cfg, args=None):
+        """Запустить бота в фоновом потоке."""
+        if self._running:
+            return
+
+        self._stop_event.clear()
+        self._running = True
+
+        if args is None:
+            args = _FakeArgs()
+
+        self._thread = threading.Thread(
+            target=self._run_bot, args=(cfg, args), daemon=True)
+        self._thread.start()
+
+    def stop(self):
+        """Остановить бота."""
+        self._stop_event.set()
+        self._running = False
+
+    def get_status(self):
+        """Получить текущий статус."""
+        with self._lock:
+            return dict(self._status)
+
+    def _update_status(self, **kw):
+        with self._lock:
+            self._status.update(kw)
+
+    def _run_bot(self, cfg, args):
+        """Запуск основного цикла бота."""
+        import cv2
+        import numpy as np
+        from ..capture.screen import ScreenCapture
+        from ..capture.window import GameWindow
+        from ..core.loot_engine import LootEngine
+        from ..core.hp_watcher import HPWatcher
+        from ..core.pickup_logger import PickupLogger
+        from ..core.stats import StatsCollector
+        from ..input.mouse import Mouse
+        from ..vision.color_detector import ColorDetector
+
+        log = logging.getLogger("autoloot.gui")
+        self._update_status(mode=cfg.get("loot", {}).get("mode", "toggle"),
+                            profile="default", active=True)
+
+        try:
+            win = GameWindow(cfg["game"]["window_title"])
+            region = None
+            if win.find():
+                region = win.get_region()
+            if not region:
+                region = GameWindow.primary_region()
+
+            cap = ScreenCapture(cfg["capture"]["backend"],
+                                double_buffer=cfg["capture"].get("double_buffer", False))
+            loot = cfg["loot"]
+            mouse = Mouse(rand_delay_ms=tuple(loot.get("randomize_delay_ms", [20, 70])),
+                          human_move=loot.get("human_mouse", True))
+            engine = LootEngine(
+                mouse=mouse, region=region,
+                center_offset=loot.get("center_offset_xy", [0, 0]),
+                radius=loot["pickup_radius_px"],
+                cooldown_ms=loot.get("click_cooldown_ms", 90),
+                log=log, dedup_px=loot.get("dedup_px", 24),
+                dedup_ms=loot.get("dedup_ms", 0),
+                stuck_timeout_s=loot.get("stuck_timeout_s", 5.0),
+                roi_margin_px=loot.get("roi_margin_px", 100),
+            )
+
+            v = cfg.get("vision", {})
+            cat_map = cfg.get("filter", {}).get("category_colors", {})
+            det = ColorDetector(
+                markers=[cfg["filter"]["marker_rgb"]] + [c for c in cat_map.values() if c],
+                hue_tol=v.get("hue_tolerance", 8), sat_min=v.get("sat_min", 120),
+                val_min=v.get("val_min", 120), min_blob_area=v.get("min_blob_area", 12),
+                close_px=v.get("close_px", 3),
+            )
+
+            hp_watcher = HPWatcher(cfg.get("hp_flask", {}), log)
+            pickup_log = PickupLogger()
+            stats_collector = StatsCollector()
+            stats_collector.start_session()
+
+            target_fps = max(1, cfg["capture"].get("target_fps", 30))
+            frame_budget = 1.0 / target_fps
+            picked = 0
+            stats = {}
+
+            if cap._double_buffer:
+                cap.start_buffer(region, target_fps)
+
+            try:
+                while not self._stop_event.is_set():
+                    t0 = time.perf_counter()
+                    frame = cap.grab(region)
+                    if frame is None:
+                        time.sleep(frame_budget)
+                        continue
+
+                    roi = engine.get_roi(frame.shape)
+                    if roi:
+                        x1, y1, x2, y2 = roi
+                        detect_frame = frame[y1:y2, x1:x2]
+                        roi_offset = (x1, y1)
+                    else:
+                        detect_frame = frame
+                        roi_offset = (0, 0)
+
+                    points, mask = det.detect(detect_frame)
+                    if roi:
+                        points = [(x + roi_offset[0], y + roi_offset[1], a)
+                                  for x, y, a in points]
+                    in_radius = engine.targets_in_radius(points, frame.shape)
+
+                    foreground = win.is_foreground()
+                    if in_radius and foreground:
+                        result = engine.pick_once(points, frame.shape)
+                        if result:
+                            tx, ty = result
+                            picked += 1
+                            cat = "?"
+                            if cat_map:
+                                hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+                                from ..main import category_for_pixel
+                                cat = category_for_pixel(
+                                    hsv, tx, ty, cat_map,
+                                    v.get("hue_tolerance", 8),
+                                    v.get("sat_min", 120),
+                                    v.get("val_min", 120))
+                            stats[cat] = stats.get(cat, 0) + 1
+                            stats_collector.record(cat, region["left"] + tx, region["top"] + ty)
+
+                    if hp_watcher:
+                        hp_watcher.check(frame, foreground)
+
+                    self._update_status(
+                        targets=len(points), in_radius=len(in_radius),
+                        active=True, picked=picked,
+                        foreground=foreground, stats=dict(stats),
+                        hp=round(hp_watcher.hp_ratio * 100) if hp_watcher else None,
+                        mode=loot.get("mode", "toggle"),
+                        session_stats=f"{stats_collector.total} items ({stats_collector.picks_per_minute:.0f}/min)",
+                    )
+
+                    elapsed = time.perf_counter() - t0
+                    if elapsed < frame_budget:
+                        time.sleep(frame_budget - elapsed)
+            finally:
+                if cap._double_buffer:
+                    cap.stop_buffer()
+                pickup_log.close()
+        except Exception as e:
+            log.error("Bot error: %s", e)
+        finally:
+            self._running = False
+            self._update_status(active=False)
+
+
+class _FakeArgs:
+    calibrate = False
+    no_overlay = False
+    config = None
+    profile = None
 
 
 # === Стиль ===
@@ -78,9 +259,10 @@ class Signals(QObject):
 class DashboardTab(QWidget):
     """Главная вкладка: статус в реальном времени."""
 
-    def __init__(self, signals: Signals):
+    def __init__(self, signals: Signals, bot: BotRunner):
         super().__init__()
         self.signals = signals
+        self.bot = bot
         self._setup_ui()
         self.signals.status_update.connect(self._update_status)
 
@@ -92,7 +274,7 @@ class DashboardTab(QWidget):
         header.setAlignment(Qt.AlignCenter)
         layout.addWidget(header)
 
-        self.status_label = QLabel("OFF")
+        self.status_label = QLabel("STOPPED")
         self.status_label.setObjectName("status-off")
         self.status_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(self.status_label)
@@ -121,23 +303,28 @@ class DashboardTab(QWidget):
         layout.addWidget(stats_group)
 
         btn_layout = QHBoxLayout()
-        self.toggle_btn = QPushButton("START (F8)")
-        self.toggle_btn.setObjectName("success")
-        self.toggle_btn.clicked.connect(self._toggle)
-        btn_layout.addWidget(self.toggle_btn)
+        self.start_btn = QPushButton("START")
+        self.start_btn.setObjectName("success")
+        self.start_btn.clicked.connect(self._toggle)
+        btn_layout.addWidget(self.start_btn)
 
-        self.reload_btn = QPushButton("Reload (F5)")
-        self.reload_btn.clicked.connect(self._reload)
-        btn_layout.addWidget(self.reload_btn)
+        self.stop_btn = QPushButton("STOP")
+        self.stop_btn.setObjectName("danger")
+        self.stop_btn.clicked.connect(self._stop)
+        self.stop_btn.setEnabled(False)
+        btn_layout.addWidget(self.stop_btn)
 
         layout.addLayout(btn_layout)
         layout.addStretch()
 
     def _update_status(self, data: dict):
         active = data.get("active", False)
-        self.status_label.setText("ACTIVE" if active else "IDLE")
+        self.status_label.setText("RUNNING" if active else "STOPPED")
         self.status_label.setObjectName("status-on" if active else "status-off")
         self.status_label.setStyleSheet("")
+
+        self.start_btn.setEnabled(not active)
+        self.stop_btn.setEnabled(active)
 
         self.mode_label.setText(data.get("mode", "-"))
         self.profile_label.setText(data.get("profile", "default"))
@@ -150,20 +337,19 @@ class DashboardTab(QWidget):
         self.hp_label.setText(f"{hp}%" if hp is not None else "-")
 
     def _toggle(self):
-        from pynput.keyboard import Controller
-        kb = Controller()
-        from ..input.keyboard import parse_key
-        k = parse_key("f8")
-        kb.press(k)
-        kb.release(k)
+        if not self.bot.running:
+            cfg = load_config(None)
+            self.bot.start(cfg)
+            self.status_label.setText("STARTING...")
+            self.status_label.setObjectName("status-on")
+            self.status_label.setStyleSheet("")
 
-    def _reload(self):
-        from pynput.keyboard import Controller
-        kb = Controller()
-        from ..input.keyboard import parse_key
-        k = parse_key("f5")
-        kb.press(k)
-        kb.release(k)
+    def _stop(self):
+        if self.bot.running:
+            self.bot.stop()
+            self.status_label.setText("STOPPING...")
+            self.status_label.setObjectName("status-off")
+            self.status_label.setStyleSheet("")
 
 
 class ProfilesTab(QWidget):
@@ -484,13 +670,14 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(900, 650)
 
         self.signals = Signals()
+        self.bot = BotRunner()
 
         central = QWidget()
         self.setCentralWidget(central)
         layout = QVBoxLayout(central)
 
         tabs = QTabWidget()
-        tabs.addTab(DashboardTab(self.signals), "Dashboard")
+        tabs.addTab(DashboardTab(self.signals, self.bot), "Dashboard")
         tabs.addTab(ProfilesTab(), "Profiles")
         tabs.addTab(SettingsTab(), "Settings")
         tabs.addTab(StatsTab(self.signals), "Stats")
@@ -502,7 +689,14 @@ class MainWindow(QMainWindow):
         self._poll_timer.start(500)
 
     def _poll(self):
-        pass
+        if self.bot.running:
+            status = self.bot.get_status()
+            self.signals.status_update.emit(status)
+
+    def closeEvent(self, event):
+        if self.bot.running:
+            self.bot.stop()
+        event.accept()
 
 
 def run_gui():
