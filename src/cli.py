@@ -131,6 +131,12 @@ def cmd_validate(args):
         print("Конфиг валиден.")
 
 
+def cmd_gui(args):
+    """Запустить GUI."""
+    from src.ui.app import run_gui
+    run_gui()
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Auto Loot PoE2 Helper — CLI менеджер",
@@ -156,6 +162,8 @@ def main():
     p_validate = sub.add_parser("validate", help="валидировать конфиг")
     p_validate.add_argument("--config", help="путь к конфигу")
 
+    sub.add_parser("gui", help="запустить GUI")
+
     args = parser.parse_args()
 
     cmds = {
@@ -165,6 +173,7 @@ def main():
         "unpatch": cmd_unpatch,
         "check": cmd_check,
         "validate": cmd_validate,
+        "gui": cmd_gui,
     }
 
     if args.command in cmds:

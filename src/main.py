@@ -330,9 +330,15 @@ def main():
     parser.add_argument("--calibrate", action="store_true",
                         help="окно с подсветкой целей и HSV-маской (без оверлея)")
     parser.add_argument("--no-overlay", action="store_true", help="не показывать оверлей")
+    parser.add_argument("--gui", action="store_true", help="запустить GUI вместо консоли")
     parser.add_argument("--profile", default=None, help="имя стартового профиля (config/profiles/<name>.yaml)")
     parser.add_argument("--config", default=None, help="путь к произвольному конфигу (yaml)")
     args = parser.parse_args()
+
+    if args.gui:
+        from .ui.app import run_gui
+        run_gui()
+        return 0
 
     boot = load_config(args.config)
     log = get_logger(boot)
