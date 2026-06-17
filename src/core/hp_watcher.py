@@ -75,7 +75,7 @@ class HPWatcher:
                 self._kb.press(self._key)
                 self._kb.release(self._key)
             self._last_press = now
-            self._log.info("HP flask [%s] (HP≈%.0f%% < %.0f%%)",
+            self._log.info("HP flask [%s] (HP ~%.0f%% < %.0f%%)",
                            self.input_method, hp * 100, self.threshold * 100)
             if self.sound and now - self._sound_cooldown > 3.0:
                 _beep()

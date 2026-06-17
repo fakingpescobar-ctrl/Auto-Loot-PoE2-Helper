@@ -152,6 +152,32 @@ pip install -r requirements.txt
 - `pywin32` — поиск окна PoE2, фокус
 - `PyYAML` — конфиги
 - `PyQt5` — прозрачный оверлей
+- `vgamepad` — виртуальный Xbox контроллер (для геймпада)
+
+### Геймпад (DualSense → Xbox)
+
+Для работы с геймпадом установите **DS4Windows**:
+
+1. Скачайте с https://github.com/ds4windowsapp/DS4Windows/releases
+2. Установите ViGEmBus driver (включён в установщик)
+3. Подключите DualSense по USB или Bluetooth
+4. Настройте маппинг кнопок в DS4Windows (Profiles → Edit)
+
+**Маппинг по умолчанию в PoE2:**
+
+| DualSense | Xbox | PoE2 действие |
+|-----------|------|---------------|
+| Cross (X) | A | Подбор предметов |
+| Square | X | Атака |
+| Triangle | Y | Skill 2 |
+| Circle | B | Уклонение (Dodge Roll) |
+| L1 | LB | Flask (Mana) |
+| L2 | LT | Flask (Life) |
+| R3 | Right Stick Click | Switch Weapon Set |
+| D-pad Up | D-pad Up | Highlight Loot |
+| D-pad Down | D-pad Down | Карта |
+| D-pad Left | D-pad Left | Инвентарь |
+| D-pad Right | D-pad Right | Портал |
 
 ### Запуск
 
@@ -178,6 +204,7 @@ python -m pytest
 Auto Loot PoE2 Helper/
 ├── config/
 │   ├── default.yaml           # базовый конфиг
+│   ├── gamepad/               # маппинг геймпада
 │   └── profiles/              # профили (calibrated, mapping, bossing)
 ├── src/
 │   ├── main.py                # точка входа, главный цикл
@@ -192,7 +219,9 @@ Auto Loot PoE2 Helper/
 │   │   └── hp_detector.py     # детекция HP по цвету орба
 │   ├── input/
 │   │   ├── mouse.py           # геймерское движение + клик с рандомизацией
-│   │   └── keyboard.py        # глобальные хоткеи
+│   │   ├── keyboard.py        # глобальные хоткеи
+│   │   ├── gamepad.py         # виртуальный Xbox контроллер (vgamepad)
+│   │   └── dualsense_bridge.py # мост DualSense → Virtual Xbox
 │   ├── core/
 │   │   ├── loot_engine.py     # очередь целей, приоритеты, анти-дабл-клик
 │   │   ├── filter_patcher.py  # впрыск override-блока в .filter

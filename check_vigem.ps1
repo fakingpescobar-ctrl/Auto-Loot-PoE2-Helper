@@ -1,0 +1,1 @@
+Get-PnpDevice | Where-Object { $_.InstanceId -like "*ViGEm*" -or $_.FriendlyName -like "*ViGEm*" -or $_.FriendlyName -like "*Virtual*Gamepad*" -or $_.FriendlyName -like "*Xbox*360*" } | Select-Object FriendlyName, Status, InstanceId | Format-Table -AutoSize

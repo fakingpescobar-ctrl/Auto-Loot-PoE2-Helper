@@ -1,0 +1,34 @@
+{
+  "controller": "DualSense Wireless Controller",
+  "buttons": {
+    "подбор предметов": {"type": "button", "id": 0, "ds_name": "cross", "description": "Подбор предметов"},
+    "атака": {"type": "button", "id": 2, "ds_name": "square", "description": "Атака"},
+    "уклонение": {"type": "button", "id": 3, "ds_name": "triangle", "description": "Перекат"},
+    "hp_flask": {"type": "axis", "id": 4, "ds_name": "l2", "description": "HP фласка"},
+    "подсветка": {"type": "button", "id": 4, "ds_name": "l1", "description": "Подсветка предметов"},
+    "mana_flask": {"type": "button", "id": 12, "ds_name": "r3", "description": "Mana фласка"},
+    "портал": {"type": "button", "id": 16, "ds_name": "dpad_right", "description": "Портал"},
+    "инвентарь": {"type": "button", "id": 15, "ds_name": "dpad_left", "description": "Инвентарь"},
+    "карта": {"type": "button", "id": 14, "ds_name": "dpad_down", "description": "Карта + характеристики"}
+  },
+  "raw_mapping": {
+    "L1": {"type": "button", "id": 4, "action": "подсветка", "ds_name": "l1"},
+    "L2": {"type": "axis", "id": 4, "action": "hp_flask", "ds_name": "l2"},
+    "R1": {"type": "button", "id": 5, "action": "ничего", "ds_name": "r1"},
+    "R2": {"type": "axis", "id": 5, "action": "ничего", "ds_name": "r2"},
+    "Cross (X)": {"type": "button", "id": 0, "action": "подбор предметов", "ds_name": "cross"},
+    "Square []": {"type": "button", "id": 2, "action": "атака", "ds_name": "square"},
+    "Triangle /\\": {"type": "button", "id": 3, "action": "уклонение", "ds_name": "triangle"},
+    "Circle O": {"type": "button", "id": 1, "action": "уклонение (дубль)", "ds_name": "circle"},
+    "D-pad Up": {"type": "button", "id": 13, "action": "подсветка", "ds_name": "dpad_up"},
+    "D-pad Down": {"type": "button", "id": 14, "action": "карта", "ds_name": "dpad_down"},
+    "D-pad Left": {"type": "button", "id": 15, "action": "инвентарь", "ds_name": "dpad_left"},
+    "D-pad Right": {"type": "button", "id": 16, "action": "портал", "ds_name": "dpad_right"},
+    "L3": {"type": "button", "id": 11, "action": "ничего", "ds_name": "l3"},
+    "R3": {"type": "button", "id": 12, "action": "mana_flask", "ds_name": "r3"},
+    "Share": {"type": "button", "id": 8, "action": "ничего", "ds_name": "share"},
+    "Options": {"type": "button", "id": 9, "action": "ничего", "ds_name": "options"},
+    "PS": {"type": "skipped", "id": -1, "action": "ничего", "ds_name": "ps"},
+    "Touchpad": {"type": "skipped", "id": -1, "action": "ничего", "ds_name": "touchpad"}
+  }
+}

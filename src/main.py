@@ -283,7 +283,7 @@ def run_loop(args, cfg, log, stop_event, status, win, region, clicks_enabled,
                           foreground=foreground,
                           stats=dict(stats),
                           active_cat=", ".join(sorted(active_categories)) if active_categories else "all",
-                          session_stats=f"{stats_collector.total} предм ({stats_collector.picks_per_minute:.0f}/мин)",
+                          session_stats=f"{stats_collector.session.total} предм ({stats_collector.session.picks_per_minute:.0f}/мин)",
                           hp=round(hp_watcher.hp_ratio * 100) if hp_watcher else None)
 
             now = time.perf_counter()
